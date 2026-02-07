@@ -1,0 +1,212 @@
+{
+  "packages": [
+    {
+      "id": "P001",
+      "name": "Bali Explorer",
+      "destination": "Bali, Indonesia",
+      "duration": "5 Days / 4 Nights",
+      "description": "Experience the magic of Bali with our comprehensive explorer package",
+      "highlights": [
+        "Private airport transfers",
+        "4 nights accommodation in a 4-star resort",
+        "Daily breakfast included",
+        "Guided temple tours",
+        "Rice terrace visits",
+        "Traditional Balinese dance show",
+        "Beach relaxation time"
+      ],
+      "inclusions": [
+        "Airport transfers",
+        "4 nights accommodation",
+        "Daily breakfast",
+        "Guided tours",
+        "All entrance fees",
+        "English speaking guide"
+      ],
+      "exclusions": [
+        "International flights",
+        "Personal expenses",
+        "Travel insurance",
+        "Visa fees",
+        "Optional activities",
+        "Lunch and dinner"
+      ],
+      "accommodation": {
+        "name": "Bali Paradise Resort",
+        "type": "4-Star Resort",
+        "location": "Seminyak, Bali",
+        "amenities": [
+          "Swimming pool",
+          "Spa services",
+          "Restaurant",
+          "WiFi",
+          "Room service"
+        ],
+        "nearby_restaurants": [
+          "Warung Made",
+          "La Lucciola",
+          "Sarong Restaurant"
+        ],
+        "nearby_cafes": [
+          "Revolver Espresso",
+          "Sisterfields",
+          "Manual Coffee Works"
+        ],
+        "nearby_attractions": [
+          "Seminyak Beach",
+          "Petitenget Temple",
+          "Art markets",
+          "Shopping streets"
+        ]
+      },
+      "day wise itinerary": [
+        {
+          "day": 1,
+          "activities": [
+            "Airport pickup and transfer to hotel",
+            "Welcome dinner at hotel restaurant",
+            "Accommodation check-in",
+            "Free time to relax and settle in"
+          ]
+        },
+        {
+          "day": 2,
+          "activities": [
+            "Breakfast at hotel",
+            "Guided tour of Ubud rice terraces",
+            "Visit to traditional Balinese village",
+            "Lunch at local restaurant",
+            "Afternoon temple visit",
+            "Return to hotel for relaxation"
+          ]
+        },
+        {
+          "day": 3,
+          "activities": [
+            "Breakfast at hotel",
+            "Full day beach excursion",
+            "Water sports activities (optional)",
+            "Beachside lunch",
+            "Sunset viewing",
+            "Cultural dance performance in evening"
+          ]
+        },
+        {
+          "day": 4,
+          "activities": [
+            "Breakfast at hotel",
+            "Shopping and market visit",
+            "Spa treatment session",
+            "Free time for personal activities",
+            "Farewell dinner"
+          ]
+        },
+        {
+          "day": 5,
+          "activities": [
+            "Breakfast at hotel",
+            "Airport transfer",
+            "Departure"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P002",
+      "name": "A London Christmas",
+      "destination": "London, UK",
+      "duration": "9 Days / 8 Nights",
+      "description": "Experience the magical Christmas season in London",
+      "highlights": [
+        "Christmas market tours",
+        "West End shows",
+        "Holiday sightseeing",
+        "Traditional Christmas dinner"
+      ],
+      "inclusions": [
+        "Airport transfers",
+        "8 nights accommodation",
+        "Daily breakfast",
+        "Guided tours",
+        "Theater tickets"
+      ],
+      "exclusions": [
+        "International flights",
+        "Personal expenses",
+        "Travel insurance"
+      ]
+    },
+    {
+      "id": "P003", 
+      "name": "A New York Christmas",
+      "destination": "New York, USA",
+      "duration": "5 Days / 4 Nights",
+      "description": "Experience the holiday magic in New York City",
+      "highlights": [
+        "Rockefeller Center tree",
+        "Broadway shows",
+        "Holiday shopping",
+        "Central Park in winter"
+      ],
+      "inclusions": [
+        "Airport transfers",
+        "4 nights accommodation",
+        "Daily breakfast",
+        "Guided tours"
+      ],
+      "exclusions": [
+        "International flights",
+        "Personal expenses",
+        "Travel insurance"
+      ]
+    },
+    {
+      "id": "P004",
+      "name": "A Parisian Noël", 
+      "destination": "Paris, France",
+      "duration": "7 Days / 6 Nights",
+      "description": "Romantic Christmas experience in the City of Light",
+      "highlights": [
+        "Christmas markets",
+        "Eiffel Tower lights",
+        "Seine river cruise",
+        "French holiday cuisine"
+      ],
+      "inclusions": [
+        "Airport transfers", 
+        "6 nights accommodation",
+        "Daily breakfast",
+        "Guided tours"
+      ],
+      "exclusions": [
+        "International flights",
+        "Personal expenses", 
+        "Travel insurance"
+      ]
+    },
+    {
+      "id": "P005",
+      "name": "A Week with Santa",
+      "destination": "Lapland, Finland",
+      "duration": "7 Days / 6 Nights", 
+      "description": "Magical Christmas experience with Santa Claus",
+      "highlights": [
+        "Santa Claus Village",
+        "Northern Lights viewing",
+        "Husky sledding",
+        "Reindeer farm visit"
+      ],
+      "inclusions": [
+        "Airport transfers",
+        "6 nights accommodation",
+        "Daily breakfast",
+        "Winter activities"
+      ],
+      "exclusions": [
+        "International flights",
+        "Personal expenses",
+        "Travel insurance"
+      ]
+    }
+  ]
+}
