@@ -10,7 +10,7 @@ class APIConnector {
     try {
       console.log('Sending vendor email inquiry:', inquiryData);
 
-      const response = await axios.post(`${this.backendUrl}/api/send-vendor-inquiry/`, inquiryData, {
+      const response = await axios.post(`${this.backendUrl}/api/send-vendor-email/`, inquiryData, {
         headers: {
           'Content-Type': 'application/json'
         }

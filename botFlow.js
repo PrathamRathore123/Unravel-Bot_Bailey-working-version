@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+require('dotenv').config();
 
 class BotFlow {
   constructor() {
@@ -12,21 +13,44 @@ class BotFlow {
     this.MESSAGE_COOLDOWN = 1000; 
     this.googleDriveLinks = this.loadGoogleDriveLinks();
     
+    // Load persistent user data
+    this.loadUserData();
+    
     // Start automatic cleanup scheduler
     this.startCleanupScheduler();
   }
 
+  loadUserData() {
+    try {
+      const fs = require('fs');
+      const userDataPath = './userData.json';
+      
+      if (fs.existsSync(userDataPath)) {
+        const userData = JSON.parse(fs.readFileSync(userDataPath, 'utf8'));
+        this.userData = userData;
+        console.log(`[USERDATA] Loaded ${Object.keys(userData).length} user records from userData.json`);
+      } else {
+        console.log('[USERDATA] No existing userData.json found, starting fresh');
+      }
+    } catch (error) {
+      console.error('[USERDATA] Error loading user data:', error.message);
+      this.userData = {};
+    }
+  }
+
+  saveUserData() {
+    const fs = require('fs');
+    const path = require('path');
+    const userDataPath = path.join(__dirname, 'userData.json');
+    try {
+      fs.writeFileSync(userDataPath, JSON.stringify(this.userData, null, 2));
+    } catch (error) {
+      console.error('Error saving user data:', error.message);
+    }
+  }
+
   startCleanupScheduler() {
-    // CLEANUP DISABLED - The automatic cleanup was removing data too aggressively
-    // If you need to cleanup old conversations, run it manually:
-    // 1. Stop the bot
-    // 2. Backup conversations.json
-    // 3. Run cleanup manually if needed
-    console.log('Automatic cleanup disabled to prevent data loss');
-    
-    // Original cleanup code commented out:
-    /*
-    // Run cleanup every 24 hours at 2:00 AM
+    // Run selective cleanup every 24 hours at 2:00 AM
     const scheduleCleanup = () => {
       const now = new Date();
       const tomorrow = new Date(now);
@@ -36,19 +60,19 @@ class BotFlow {
       const timeUntilCleanup = tomorrow - now;
       
       setTimeout(() => {
-        console.log('Starting scheduled conversation cleanup...');
-        this.cleanupInactiveConversations();
+        console.log('Starting scheduled selective cleanup...');
+        const conversationManager = require('./conversationManager');
+        conversationManager.selectiveCleanup();
         
         // Schedule next cleanup
         scheduleCleanup();
       }, timeUntilCleanup);
       
-      console.log(`Next conversation cleanup scheduled for: ${tomorrow.toLocaleString()}`);
+      console.log(`Next selective cleanup scheduled for: ${tomorrow.toLocaleString()}`);
     };
     
     // Start the scheduler
     scheduleCleanup();
-    */
   }
 
   loadGoogleDriveLinks() {
@@ -240,16 +264,12 @@ class BotFlow {
         response = await this.handleFinalize(userId, lowerMessage);
         break;
       
+      case 'confirm_booking':
+        response = await this.handleConfirmBooking(userId, lowerMessage);
+        break;
+      
       case 'awaiting_quotes':
-        response = this.handleAwaitingQuotes(userId, lowerMessage);
-        break;
-      
-      case 'book_my_trip':
-        response = this.handleBookMyTrip(userId, lowerMessage);
-        break;
-      
-      case 'completed':
-        response = await this.handleCompleted(userId, message);
+        response = await this.handleAwaitingQuotes(userId, message);
         break;
       
       default:
@@ -310,7 +330,8 @@ class BotFlow {
     const questionWords = [
       'what', 'how', 'where', 'when', 'why', 'which', 'who', 'whose',
       'is', 'are', 'do', 'does', 'did', 'can', 'could', 'will', 'would', 'should',
-      'tell me', 'show me', 'explain', 'describe', 'details', 'information'
+      'tell me', 'show me', 'explain', 'describe', 'details', 'information',
+      'any', 'have to', 'need to', 'must', 'gonna', 'going to'
     ];
     
     // Check if message starts with question words
@@ -325,13 +346,15 @@ class BotFlow {
     // Check for common question patterns
     const questionPatterns = [
       'how many', 'how much', 'how long', 'how far',
-      'what is', 'what are', 'what does', 'what do',
+      'what is', 'what are', 'what does', 'what do', 'what about',
       'where is', 'where are', 'where can',
       'when does', 'when is', 'when can',
       'why is', 'why are', 'why do',
       'which is', 'which are', 'which do',
-      'is there', 'are there', 'do you have', 'can i',
-      'tell me about', 'show me', 'explain', 'describe'
+      'is there', 'are there', 'do you have', 'can i', 'do we', 'will we',
+      'tell me about', 'show me', 'explain', 'describe',
+      'have to pay', 'need to pay', 'extra charge', 'additional cost',
+      'gonna get', 'going to get', 'included in'
     ];
     
     return questionPatterns.some(pattern => lowerMessage.includes(pattern));
@@ -377,15 +400,14 @@ class BotFlow {
     
     if (greetings.some(greeting => message.includes(greeting)) || message === '') {
       return {
-        messages: [`Hello! Welcome to Unravel Experience
-We're here to make your trip unforgettable!
+        messages: [`Hey, I'm Unravel One. I'll help you put together your trip. We have a few winter experiences ready to go:
 
-Here are some of our featured packages:
+• London Christmas (8N/9D)
+• New York Christmas (4N/5D) 
+• Parisian Noël (6N/7D)
+• A Week with Santa (6N/7D)
 
-A London Christmas - 8 nights/9 days
-A New York Christmas - 4 nights/5 days
-A Parisian Noël - 6 nights/7 days
-A Week with Santa - 6 nights/7 days`],
+Which one fits you?`],
         nextState: 'destination_selection'
       };
     }
@@ -411,7 +433,11 @@ A Week with Santa - 6 nights/7 days`],
     }
 
     if (selectedPackage) {
-      this.userData[userId] = { selectedPackage };
+      // Merge with existing userData instead of overwriting
+      if (!this.userData[userId]) {
+        this.userData[userId] = {};
+      }
+      this.userData[userId].selectedPackage = selectedPackage;
       
       const itinerary = this.packageItineraries[selectedPackage.toLowerCase()] || 'Itinerary details coming soon...';
       
@@ -425,30 +451,37 @@ A Week with Santa - 6 nights/7 days`],
 
       const packageInfo = packageFileMap[selectedPackage];
       
+      // Create conversational package description based on selection
+      let packageDescription = '';
+      switch(selectedPackage) {
+        case 'A London Christmas':
+          packageDescription = `London Christmas. Eight nights in the city during the holiday season - Christmas markets, private experiences, New Year's Eve. The full itinerary will be send to you.`;
+          break;
+        case 'A New York Christmas':
+          packageDescription = `New York Christmas. Four nights in the Big Apple during the most magical time of year - iconic holiday sights, Broadway shows, festive dining. The full itinerary will be send to you.`;
+          break;
+        case 'A Parisian Noël':
+          packageDescription = `Parisian Noël. Six nights in the City of Light during Christmas - romantic markets, Eiffel Tower illuminations, festive cuisine. The full itinerary will be send to you.`;
+          break;
+        case 'A Week with Santa':
+          packageDescription = `A Week with Santa. Six nights in Lapland - Santa Claus Village, husky sledding, Northern Lights, Arctic wonderland.The full itinerary will be send to you.`;
+          break;
+        default:
+          packageDescription = `${selectedPackage}. The full itinerary will be send to you.`;
+      }
+      
       // Send package overview message immediately
-      const messages = [
-        `**${selectedPackage} - Package Overview**
-
-**Destination:** ${this.getDestinationFromPackage(selectedPackage)}
-**Duration:** ${this.getDurationFromPackage(selectedPackage)}
-**Best For:** ${this.getBestForFromPackage(selectedPackage)}
-
-**Detailed Itinerary:** The complete day-by-day itinerary with all activities, timings, and inclusions has been sent to you as a PDF file.
-
-**Highlights Include:**
-${this.getPackageHighlights(selectedPackage)}`
-      ];
+      const messages = [packageDescription];
 
       // Start PDF sending in background - completely separate from response
       if (packageInfo) {
         try {
-          console.log('DEBUG: Starting PDF send in background for package:', selectedPackage);
           
           // Send PDF and then follow-up message completely in background
           this.sendPDFAndFollowUp(userId, packageInfo);
           
         } catch (error) {
-          console.log('DEBUG: Error starting PDF send:', error.message);
+          console.log('Error starting PDF send:', error.message);
         }
       }
       
@@ -467,46 +500,42 @@ ${this.getPackageHighlights(selectedPackage)}`
       try {
         // Send PDF first
         await this.sendPDFFile(userId, null, packageInfo);
-        console.log('DEBUG: PDF sent, now sending follow-up message');
         
         // Wait a moment to ensure PDF arrives first
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         // Send follow-up message separately
         const { sendMessage } = require('./messageHandler');
-        await sendMessage(userId.replace('@s.whatsapp.net', '').replace('@c.us', ''), 
-          `If you have any questions about this package, feel free to ask!
-
-Ready to book? Reply "ready for this package".`
+        // Handle different WhatsApp ID formats (@lid, @s.whatsapp.net, @c.us)
+        const cleanPhoneId = userId.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@lid', '');
+        await sendMessage(cleanPhoneId, 
+          `Any questions about the trip?`
         );
         
-        console.log('DEBUG: Follow-up message sent');
-        
       } catch (error) {
-        console.log('DEBUG: Error in background PDF/follow-up:', error.message);
+        console.log('Error in background PDF/follow-up:', error.message);
         
         // Still try to send follow-up even if PDF failed
         try {
           const { sendMessage } = require('./messageHandler');
-          await sendMessage(userId.replace('@s.whatsapp.net', '').replace('@c.us', ''), 
-            `If you have any questions about this package, feel free to ask!
-
-Ready to book? Reply "ready for this package".`
+          const cleanPhoneId = userId.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@lid', '');
+          await sendMessage(cleanPhoneId, 
+            `Any questions about the trip?`
           );
         } catch (followUpError) {
-          console.log('DEBUG: Follow-up message also failed:', followUpError.message);
+          console.log('Follow-up message also failed:', followUpError.message);
         }
       }
     }
 
   async handleNoPackageMatch() {
     return {
-      messages: [`I'd be happy to help you choose a package! Please select from:
+      messages: [`I'd be happy to help you choose! We have:
 
-London - A London Christmas
-New York - A New York Christmas  
-Paris - A Parisian Noël
-Santa - A Week with Santa
+• London - A London Christmas
+• New York - A New York Christmas  
+• Paris - A Parisian Noël
+• Santa - A Week with Santa
 
 Which destination interests you?`],
       nextState: 'destination_selection'
@@ -514,11 +543,37 @@ Which destination interests you?`],
   }
 
   async handleStartBooking(userId, message) {
-    if (message === 'ready for this package') {
+    // Accept multiple variations of "ready" responses
+    const readyVariations = [
+      'ready',
+      'Ready',
+      'READY',
+      'ready to reserve',
+      'Ready to reserve',
+      'READY TO RESERVE',
+      'ready to book',
+      'Ready to book',
+      'READY TO BOOK',
+      'yes ready',
+      'Yes ready',
+      'YES READY',
+      'let\'s do it',
+      'Let\'s do it',
+      'LET\'S DO IT',
+      'book it',
+      'Book it',
+      'BOOK IT',
+      'confirm',
+      'Confirm',
+      'CONFIRM'
+    ];
+    
+    const normalizedMessage = message.trim();
+    
+    if (readyVariations.some(variation => variation.toLowerCase() === normalizedMessage.toLowerCase())) {
       return {
         messages: [
-          `Great! I'd be happy to help you book your trip!\n\nLet's start with your booking details.`,
-          `Please provide your full name:`
+          `What's your name?`
         ],
         nextState: 'collect_name'
       };
@@ -555,16 +610,18 @@ Which destination interests you?`],
       } catch (error) {
         console.error('Error getting AI response:', error);
         return {
-          messages: [`I'm having trouble answering that right now. If you're ready to proceed with booking, please reply "ready for this package".`],
+          messages: [`I'm having trouble answering that right now. Ready to reserve this? It's free to hold while we work out final details.
+
+Or if you have questions about the trip, feel free to ask!`],
           nextState: 'start_booking'
         };
       }
     }
 
     return {
-      messages: [`If you're ready to proceed with booking, please reply "ready for this package".
+      messages: [`Ready to reserve this? It's free to hold while we work out final details.
 
-Or if you have questions about the package, feel free to ask!`],
+Or if you have questions about the trip, feel free to ask!`],
       nextState: 'start_booking'
     };
   }
@@ -573,7 +630,7 @@ Or if you have questions about the package, feel free to ask!`],
     const name = message.trim();
     if (name.length < 2) {
       return {
-        messages: [`Please provide your full name (at least 2 characters):`],
+        messages: [`Could I get your full name, please?`],
         nextState: 'collect_name'
       };
     }
@@ -581,7 +638,7 @@ Or if you have questions about the package, feel free to ask!`],
     this.userData[userId].name = name;
     
     return {
-      messages: [`How many travelers will be joining this trip? (e.g., 2)`],
+      messages: [`How many people are traveling?`],
       nextState: 'collect_travelers'
     };
   }
@@ -590,7 +647,7 @@ Or if you have questions about the package, feel free to ask!`],
     const travelers = parseInt(message);
     if (isNaN(travelers) || travelers < 1 || travelers > 20) {
       return {
-        messages: [`Please provide a valid number of travelers (1-20):`],
+        messages: [`How many people will be traveling? (1-20)`],
         nextState: 'collect_travelers'
       };
     }
@@ -598,7 +655,7 @@ Or if you have questions about the package, feel free to ask!`],
     this.userData[userId].travelers = travelers;
     
     return {
-      messages: [`What's your preferred travel date? (e.g., 15/08/2026)`],
+      messages: [`When do you want to travel? (e.g., 20/12/2025)`],
       nextState: 'collect_date'
     };
   }
@@ -609,7 +666,7 @@ Or if you have questions about the package, feel free to ask!`],
     
     if (!match) {
       return {
-        messages: [`Please provide a valid date in DD/MM/YYYY format (e.g., 15/08/2026):`],
+        messages: [`Please use DD/MM/YYYY format - e.g., 20/12/2025 or 25/12/2025`],
         nextState: 'collect_date'
       };
     }
@@ -630,35 +687,69 @@ Or if you have questions about the package, feel free to ask!`],
     
     return {
       messages: [
-        `*BOOKING SUMMARY*\n\nName: ${data.name}\nTravelers: ${data.travelers}\nTravel Date: ${data.startDate}\nRequirements: ${data.requirements}\nPackage: ${data.selectedPackage}`,
-        `All details collected! Reply with "finalize" to confirm your booking.`
+        `Ready to revert this? It's free to hold while we work out the final details 
+
+You can reply yes or no`
       ],
-      nextState: 'finalize'
+      nextState: 'confirm_booking'
     };
   }
 
   async handleFinalize(userId, message) {
-    if (message !== 'finalize') {
+    // Accept multiple variations of "finalize" responses
+    const finalizeVariations = [
+      'finalize',
+      'Finalize',
+      'FINALIZE',
+      'finalise',
+      'Finalise',
+      'FINALISE',
+      'confirm booking',
+      'Confirm booking',
+      'CONFIRM BOOKING',
+      'yes finalize',
+      'Yes finalize',
+      'YES FINALIZE',
+      'book now',
+      'Book now',
+      'BOOK NOW',
+      'proceed',
+      'Proceed',
+      'PROCEED'
+    ];
+    
+    const normalizedMessage = message.trim();
+    
+    if (!finalizeVariations.some(variation => variation.toLowerCase() === normalizedMessage.toLowerCase())) {
       return {
-        messages: [`Please reply with "finalize" to confirm your booking.`],
+        messages: [`Please reply "finalize" pull pricing for you.`],
         nextState: 'finalize'
       };
     }
 
     try {
-      // Send booking data to backend API
+      // Generate unique request ID for this quote request
+      const requestId = `REQ_${Date.now()}_${userId.slice(-6)}_${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+      console.log(`[QUOTE REQUEST] Generated new request ID: ${requestId} for user: ${userId}`);
+      
+      // Store request ID in user data for tracking
+      this.storeRequestId(userId, requestId);
+      
+      // Send booking data to backend API with request ID
       const axios = require('axios');
       const bookingData = this.userData[userId];
       
-      const backendResponse = await axios.post('http://127.0.0.1:8000/api/bookings/', {
-        name: bookingData.name,
-        phone: userId,
-        email: `${userId}@whatsapp.com`, // Generate email from phone number
-        destination: bookingData.selectedPackage,
-        travel_date: this.formatDateForBackend(bookingData.startDate), // Format date
-        guests: bookingData.travelers, // Changed from travelers
-        requirements: bookingData.requirements,
-        package: bookingData.selectedPackage
+      const backendResponse = await axios.post('http://127.0.0.1:8000/create-quote-request/', {
+        request_id: requestId,  // Include bot's request_id
+        customer_name: bookingData.name,
+        customer_phone: userId,
+        destination: 'Multiple', // All vendors are configured for 'Multiple' destination
+        service_type: 'mixed', // All packages include multiple services
+        num_people: bookingData.travelers,
+        start_date: this.formatDateForBackend(bookingData.startDate),
+        end_date: null, // Single date for now
+        special_requirements: bookingData.requirements,
+      
       }, {
         headers: {
           'Content-Type': 'application/json',
@@ -666,14 +757,34 @@ Or if you have questions about the package, feel free to ask!`],
       });
 
       if (backendResponse.status === 201 || backendResponse.status === 200) {
+        // Store the backend's returned ID for proper quote matching
+        const backendData = backendResponse.data;
+        console.log(`[DEBUG] Backend response data:`, JSON.stringify(backendData, null, 2));
+        
+        if (backendData && backendData.request_id) {
+          this.userData[userId].backendRequestId = backendData.request_id;
+          console.log(`[QUOTE REQUEST] Backend returned request_id: ${backendData.request_id} for user: ${userId}`);
+        } else if (backendData && backendData.id) {
+          this.userData[userId].backendRequestId = backendData.id;
+          console.log(`[QUOTE REQUEST] Backend returned id: ${backendData.id} for user: ${userId}`);
+        } else {
+          console.log(`[DEBUG] Backend response has no request_id or id field`);
+        }
+        
+        // Save user data to persist backend ID
+        this.saveUserData();
+        
+        // Change state to awaiting quotes with request ID tracking
+        this.userStates[userId] = 'awaiting_quotes';
+        
         return {
-          messages: [`Your booking has been successfully submitted! Our team will contact you shortly with pricing details.`],
+          messages: [], // Let webhook-server handle the confirmation message
           nextState: 'awaiting_quotes'
         };
       } else {
         console.error('Backend returned error:', backendResponse.data);
         return {
-          messages: [` Oops! Something went wrong while submitting your booking.
+          messages: [`Oops! Something went wrong while submitting your booking.
 
 Please try again in a few moments or reply *help* to connect with our team.`],
           nextState: 'finalize'
@@ -690,14 +801,14 @@ Please try again in a few moments or reply *help* to connect with our team.`],
       if (error.code === 'ECONNREFUSED') {
         console.log('Backend not available - informing user');
         return {
-          messages: [` *SYSTEM UNAVAILABLE*
+          messages: [`*System Temporarily Unavailable*
 
- Our booking system is currently experiencing technical difficulties.
+Our booking system is currently experiencing technical difficulties.
 
 Our team has been notified and is working to resolve this issue.
 
- Please try again in a few minutes or contact our support team directly:
-• Phone: +91-XXXXXXXXXX
+Please try again in a few minutes or contact our support team directly:
+• Phone: +91-9886174621
 • Email: support@unravelexperience.com
 
 We apologize for the inconvenience and appreciate your patience!`],
@@ -718,7 +829,7 @@ We apologize for the inconvenience and appreciate your patience!`],
           });
         }
         
-        errorMessage += '\nPlease try again in a few moments or reply *help* to connect with our team.';
+        errorMessage += '\nPlease try again or reply *help* to connect with our team.';
         
         return {
           messages: [errorMessage],
@@ -727,7 +838,7 @@ We apologize for the inconvenience and appreciate your patience!`],
       }
       
       return {
-        messages: [` Oops! Something went wrong while submitting your booking.
+        messages: [`Oops! Something went wrong while submitting your booking.
 
 Please try again in a few moments or reply *help* to connect with our team.`],
         nextState: 'finalize'
@@ -735,82 +846,158 @@ Please try again in a few moments or reply *help* to connect with our team.`],
     }
   }
 
-  handleAwaitingQuotes(userId, message) {
-    // This state is used when waiting for vendor quotes
-    // The actual quote message will be sent via webhook
-    return {
-      messages: [`Your booking is being processed. Our team will contact you with pricing details shortly.`],
-      nextState: 'awaiting_quotes'
-    };
-  }
+  async handleConfirmBooking(userId, message) {
+    const normalizedMessage = message.trim().toLowerCase();
 
-  handleBookMyTrip(userId, message) {
-    if (message === 'book my trip') {
-      const data = this.userData[userId];
-      
-      // Calculate end date based on package duration
-      const packageDurations = {
-        'A London Christmas': 9,
-        'A New York Christmas': 5,
-        'A Parisian Noël': 7,
-        'A Week with Santa': 7
-      };
-      
-      const duration = packageDurations[data.selectedPackage] || 7;
-      const startDate = new Date(data.startDate.split('/').reverse().join('-'));
-      const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + duration - 1);
-      
-      const endDateStr = `${endDate.getDate().toString().padStart(2, '0')}/${(endDate.getMonth() + 1).toString().padStart(2, '0')}/${endDate.getFullYear()}`;
-      
-      // Use the quote price if available, otherwise TBD
-      const totalPrice = data.quotePrice || 'TBD';
-      
-      // Send internal admin notification
-      this.sendAdminNotification(userId, data);
-      
-      return {
-        messages: [`*BOOKING REQUEST RECEIVED!*\n\n*Your Booking Summary:*\nName: ${data.name}\nPhone: ${userId}\nDestination: ${data.selectedPackage}\nStart Date: ${data.startDate}\nEnd Date: ${endDateStr}\nNo. of People: ${data.travelers}\nRequirements: ${data.requirements}\nTotal Amount: ${totalPrice}\n\n*Next Steps:*\n• Our executive team has been notified\n• You will receive a call within 24 hours\n• Payment and final details will be confirmed\n\nThank you for choosing *Unravel Experience*!`],
-        nextState: 'completed'
-      };
-    }
-
-    return {
-      messages: [`Reply "book my trip" to proceed with your booking.`],
-      nextState: 'book_my_trip'
-    };
-  }
-
-  async handleCompleted(userId, message) {
-    // Check if user is asking a question about their itinerary
-    if (this.isQuestion(message)) {
+    if (normalizedMessage === 'yes') {
+      // Proceed with finalize logic
       try {
-        const aiService = require('./aiService');
-        const conversationHistory = this.getConversationHistory(userId);
-        const aiResponse = await aiService.getAIResponse(message, userId, conversationHistory);
+        // Generate unique request ID for this quote request
+        const requestId = `REQ_${Date.now()}_${userId.slice(-6)}`;
+        console.log(`[QUOTE REQUEST] Generated new request ID: ${requestId} for user: ${userId}`);
+        
+        // Normalize userId - remove @s.whatsapp.net suffix for consistent storage
+        const cleanUserId = userId.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@lid', '');
+        
+        // Store request ID with clean user ID
+        this.storeRequestId(cleanUserId, requestId);
+        
+        // Send booking data to backend API with request ID
+        const axios = require('axios');
+        const bookingData = this.userData[userId];
+        
+        const backendResponse = await axios.post('http://127.0.0.1:8000/create-quote-request/', {
+          request_id: requestId,  // Include bot's request_id
+          customer_name: bookingData.name,
+          customer_phone: cleanUserId,
+          destination: bookingData.selectedPackage,
+          service_type: 'mixed', // All packages include multiple services
+          num_people: bookingData.travelers,
+          start_date: this.formatDateForBackend(bookingData.startDate),
+          end_date: null, // Single date for now
+          special_requirements: bookingData.requirements,
+          preferences: '' // No preferences collected yet
+        }, {
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+
+        if (backendResponse.status === 201 || backendResponse.status === 200) {
+          // Store the backend's returned ID if present
+          const backendData = backendResponse.data;
+          console.log(`[DEBUG] Backend response data:`, JSON.stringify(backendData, null, 2));
+          
+          if (backendData && backendData.request_id) {
+            this.userData[cleanUserId].backendRequestId = backendData.request_id;
+            console.log(`[QUOTE REQUEST] Backend returned request_id: ${backendData.request_id} for user: ${cleanUserId}`);
+          } else if (backendData && backendData.quote_request_id) {
+            this.userData[cleanUserId].backendRequestId = backendData.quote_request_id;
+            console.log(`[QUOTE REQUEST] Backend returned quote_request_id: ${backendData.quote_request_id} for user: ${cleanUserId}`);
+          } else if (backendData && backendData.id) {
+            this.userData[cleanUserId].backendRequestId = backendData.id;
+            console.log(`[QUOTE REQUEST] Backend returned id: ${backendData.id} for user: ${cleanUserId}`);
+          } else {
+            console.log(`[DEBUG] Backend response has no request_id, quote_request_id, or id field`);
+          }
+          
+          // Save user data
+          this.saveUserData();
+          
+          // Change state to awaiting quotes
+          this.userStates[userId] = 'awaiting_quotes';
+          
+          return {
+            messages: [], // Let webhook-server handle the confirmation message
+            nextState: 'awaiting_quotes'
+          };
+        } else {
+          console.error('Backend returned error:', backendResponse.data);
+          return {
+            messages: [`Oops! Something went wrong while submitting your booking.
+
+Please try again in a few moments or reply *help* to connect with our team.`],
+            nextState: 'confirm_booking'
+          };
+        }
+      } catch (error) {
+        console.error('Backend error:', error.message);
+        if (error.response) {
+          console.error('Backend response data:', JSON.stringify(error.response.data, null, 2));
+          console.error('Backend status:', error.response.status);
+          console.error('Backend headers:', error.response.headers);
+        }
+        // Handle backend connection errors properly
+        if (error.code === 'ECONNREFUSED') {
+          console.log('Backend not available - informing user');
+          
+          // Notify executive about the error
+          try {
+            const executiveNumber = process.env.EXECUTIVE_WHATSAPP;
+            if (executiveNumber) {
+              const errorMessage = `SYSTEM ERROR ALERT\n\nCustomer: ${userId}\nError: Backend not available (ECONNREFUSED)\nTime: ${new Date().toLocaleString()}`;
+              await this.sendMessage(executiveNumber, errorMessage);
+            }
+          } catch (execError) {
+            console.error('Failed to notify executive of error:', execError.message);
+          }
+          
+          return {
+            messages: [`*System Temporarily Unavailable*
+
+Our booking system is currently experiencing technical difficulties.
+
+Our team has been notified and is working to resolve this issue.
+
+Please try again in a few minutes or contact our support team directly:
+• Phone: +91-9886174621
+• Email: support@unravelexperience.com
+
+We apologize for the inconvenience and appreciate your patience!`],
+            nextState: 'confirm_booking'
+          };
+        }
+        
+        // If it's a validation error, show more specific message
+        if (error.response && error.response.status === 400) {
+          const errorData = error.response.data;
+          let errorMessage = 'Oops! Something went wrong while submitting your booking.';
+          
+          if (errorData && typeof errorData === 'object') {
+            Object.keys(errorData).forEach(field => {
+              if (Array.isArray(errorData[field])) {
+                errorMessage += `${field}: ${errorData[field].join(', ')}
+`;
+              }
+            });
+          }
+          
+          errorMessage += 'Please try again or reply *help* to connect with our team.';
+          
+          return {
+            messages: [errorMessage],
+            nextState: 'confirm_booking'
+          };
+        }
         
         return {
-          messages: [aiResponse],
-          nextState: 'completed'
-        };
-      } catch (error) {
-        console.error('Error getting AI response in completed state:', error);
-        return {
-          messages: [`I'm having trouble answering that right now. Our executive will contact you soon with all the details about your ${this.userData[userId]?.selectedPackage || 'chosen'} itinerary.`],
-          nextState: 'completed'
+          messages: [`Oops! Something went wrong while submitting your booking.
+
+Please try again in a few moments or reply *help* to connect with our team.`],
+          nextState: 'confirm_booking'
         };
       }
+    } else if (normalizedMessage === 'no') {
+      return {
+        messages: [`How else can I assist you? You can ask about packages, change your selection, or contact support.`],
+        nextState: 'greeting'
+      };
+    } else {
+      return {
+        messages: [`Please reply with "yes" to confirm or "no" for other assistance.`],
+        nextState: 'confirm_booking'
+      };
     }
-
-    // Default response for non-questions in completed state
-    return {
-      messages: [`Your booking request has been received and our executive team has been notified! 
-
-You'll receive a call within 24 hours to finalize the details of your ${this.userData[userId]?.selectedPackage || 'chosen'} package.
-
-If you have any questions about your itinerary, feel free to ask!`],
-      nextState: 'completed'
-    };
   }
 
   sendAdminNotification(userId, userData) {
@@ -1038,34 +1225,137 @@ ${conversationSummary}`;
 
   // Handle backend quote messages
   handleQuoteMessage(userId, price, vendorQuotes = [], webhookData = {}) {
-    // Try to get user data, but don't rely on it being present
-    const data = this.userData[userId];
+    // Normalize userId - remove WhatsApp suffixes for consistent lookup
+    const cleanUserId = userId.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@lid', '');
+    
+    console.log(`[QUOTE DEBUG] Webhook userId: ${userId}, Clean userId: ${cleanUserId}`);
+    console.log(`[QUOTE DEBUG] Available user data keys:`, Object.keys(this.userData));
+    
+    // Try to get user data with clean ID
+    const data = this.userData[cleanUserId];
+
+    // Validate request ID to prevent stale data
+    const webhookRequestId = webhookData.request_id || webhookData.quote_request_id;
+    
+    if (!data || !data.requestIds || data.requestIds.length === 0) {
+      console.log(`[QUOTE ERROR] No stored request IDs for user ${cleanUserId}. Ignoring quote.`);
+      return null; // Don't respond if no request was made
+    }
+    
+    // Find matching request ID - ONLY exact match, no fallback
+    let matchedRequest = null;
+    let isValidRequestId = false;
+    
+    console.log(`[QUOTE DEBUG] Looking for webhook ID: ${webhookRequestId} in ${data.requestIds.length} stored requests`);
+    
+    // Try exact ID match ONLY
+    for (const requestInfo of data.requestIds) {
+      if (requestInfo.id === webhookRequestId && !requestInfo.used) {
+        matchedRequest = requestInfo;
+        isValidRequestId = true;
+        console.log(`[QUOTE DEBUG] Exact ID match found: ${webhookRequestId} (unused)`);
+        break;
+      }
+    }
+    
+    if (!isValidRequestId || !matchedRequest) {
+      console.log(`[QUOTE WARNING] No matching unused request ID found. Webhook ID: ${webhookRequestId}. Ignoring quote.`);
+      console.log(`[QUOTE DEBUG] Available request IDs:`, data.requestIds.map(r => ({id: r.id, used: r.used})));
+      return null; // Ignore quotes that don't match exactly
+    }
+    
+    // Mark this request as used to prevent duplicate processing
+    matchedRequest.used = true;
+    this.saveUserData();
+    
+    console.log(`[QUOTE SUCCESS] Valid request ID match: ${webhookRequestId} for user ${userId}`);
 
     // Use destination from webhook if available, otherwise fallback to user data
     const destination = webhookData.destination || (data ? data.selectedPackage : 'Your Package');
 
-    // Store the quote data for later use in book_my_trip and admin notification
-    if (data) {
-      data.quotePrice = price;
-      data.quoteDestination = destination;
-      data.vendorQuotes = vendorQuotes; // Store complete vendor quotes
+    // NO HARDCODED PRICES - Only use actual vendor quotes
+    let finalPriceNumeric = price;
+    let finalPriceDisplay = `₹${price} Per Person`;
+    
+    // If we have individual vendor quotes, calculate total properly
+    if (vendorQuotes && vendorQuotes.length > 0) {
+      const totalFromQuotes = vendorQuotes.reduce((sum, quote) => {
+        const quotePrice = parseFloat(quote.markup_price) || parseFloat(quote.price) || 0;
+        return sum + quotePrice;
+      }, 0);
+      
+      if (totalFromQuotes > 0) {
+        finalPriceNumeric = totalFromQuotes;
+        finalPriceDisplay = `₹${Math.round(totalFromQuotes).toLocaleString('en-IN')}`;
+        console.log(`[QUOTE CALCULATION] Calculated total from ${vendorQuotes.length} vendor quotes: ${finalPriceDisplay}`);
+      }
     }
 
-    // IMPORTANT: Update user state to book_my_trip when quotes are received
-    this.userStates[userId] = 'book_my_trip';
+    // Store the quote data for later use in book_my_trip and admin notification
+    if (data) {
+      data.quotePrice = finalPriceDisplay;
+      data.quoteDestination = destination;
+      data.vendorQuotes = vendorQuotes; // Store complete vendor quotes
+      data.quoteRequestId = webhookRequestId; // Store the validated request ID
+      data.quoteReceivedAt = Date.now(); // Track when quotes were received
+    }
+
+    // IMPORTANT: Update user state to awaiting_quotes when quotes are received
+    this.userStates[cleanUserId] = 'awaiting_quotes';
+
+    // Format dates and duration
+    const packageDurations = {
+      'A London Christmas': 9,
+      'A New York Christmas': 5,
+      'A Parisian Noël': 7,
+      'A Week with Santa': 7
+    };
+    const durationDays = packageDurations[data?.selectedPackage] || 7;
+    const durationNights = durationDays - 1;
+
+    let formattedDates = '';
+    if (data?.startDate) {
+      const startDateParts = data.startDate.split('/');
+      const startDate = new Date(`${startDateParts[2]}-${startDateParts[1]}-${startDateParts[0]}`);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + durationDays - 1);
+      
+      const startMonth = startDate.toLocaleString('en-US', { month: 'long' });
+      const endMonth = endDate.toLocaleString('en-US', { month: 'long' });
+      const startDay = startDate.getDate();
+      const endDay = endDate.getDate();
+      const year = startDate.getFullYear();
+      
+      if (startMonth === endMonth) {
+        formattedDates = `${startMonth} ${startDay}-${endDay}, ${year}`;
+      } else {
+        formattedDates = `${startMonth} ${startDay} - ${endMonth} ${endDay}, ${year}`;
+      }
+    }
+
+    const travelers = webhookData.guests || data?.travelers || 1;
+    const travelerText = travelers === 1 ? 'traveler' : 'travelers';
 
     return {
-      messages: [` *TRAVEL QUOTES RECEIVED!*
+      messages: [`Your pricing for ${destination}:
+${formattedDates} ${travelers} ${travelerText} ${durationNights} nights / ${durationDays} days
+Trip Start Date: ${data?.startDate || 'TBD'}
+Total: ${finalPriceDisplay}
+One of our executives will reach out to you to take it further.`],
+      nextState: 'awaiting_quotes',
+      sendExecutive: true,
+      executiveData: {
+        userId: cleanUserId,
+        userData: data
+      }
+    };
+  }
 
- Destination: ${destination}
- Price: ${price}${!isNaN(price) ? ` (₹${Math.round(parseFloat(price) * config.USD_TO_INR_RATE)})` : ''}
-
- Next Steps:
-• Send "book my trip" to proceed
-• Our executive will contact you
-
- Thank you for choosing Unravel Experience!`],
-      nextState: 'book_my_trip'
+  async handleAwaitingQuotes(userId, message) {
+    // End conversation after quotes are received - no further responses
+    return {
+      messages: [],
+      nextState: 'greeting'
     };
   }
 
@@ -1115,7 +1405,6 @@ ${conversationSummary}`;
   // Method to send PDF file as document (optimized for speed)
   async sendPDFFile(userId, pdfPath, packageInfo) {
     try {
-      console.log('DEBUG: sendPDFFile called for package:', packageInfo.packageName);
       
       const path = require('path');
       
@@ -1143,20 +1432,31 @@ ${conversationSummary}`;
       }
       
       // Send PDF file as document via Baileys (optimized)
-      const whatsappId = userId.includes('@') ? userId : `${userId}@s.whatsapp.net`;
+      // Handle different WhatsApp ID formats
+      let whatsappId;
+      if (userId.includes('@')) {
+        if (userId.includes('@lid')) {
+          // Convert @lid format to @c.us format for Baileys
+          const cleanPhone = userId.replace('@lid', '');
+          whatsappId = `${cleanPhone}@c.us`;
+        } else {
+          whatsappId = userId; // Already in correct format
+        }
+      } else {
+        whatsappId = `${userId}@s.whatsapp.net`;
+      }
       
       try {
         console.log('Sending PDF brochure for:', packageInfo.packageName);
         
         if (global.botInstance && typeof global.botInstance.sendMessage === 'function') {
-          // Send with optimized settings for faster delivery
+          // Read file as buffer and send
+          const fileBuffer = fs.readFileSync(fullPdfPath);
           await global.botInstance.sendMessage(whatsappId, {
-            document: { url: fullPdfPath },
+            document: fileBuffer,
+            mimetype: 'application/pdf',
             fileName: pdfFileName
-          }, {
-            timeout: 60000 // 60 second timeout for faster failure detection
           });
-          console.log('PDF sent successfully via Baileys for:', packageInfo.packageName);
         } else {
           throw new Error('Bot instance not available');
         }
@@ -1166,18 +1466,22 @@ ${conversationSummary}`;
         // Quick fallback - don't calculate file stats to save time
         const { sendMessage } = require('./messageHandler');
         
-        const fallbackMessage = `${packageInfo.packageName} Brochure\n\n` +
-          `The complete PDF brochure has been prepared for your ${packageInfo.packageName} package.\n\n` +
+        const fallbackMessage = `${packageInfo.packageName} Brochure
+
+` +
+          `The complete PDF brochure has been prepared for your ${packageInfo.packageName} package.
+
+` +
           `Please proceed with booking and our team will ensure you receive the full PDF brochure!`;
         
-        await sendMessage(userId.replace('@s.whatsapp.net', '').replace('@c.us', ''), fallbackMessage);
+        await sendMessage(userId.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@lid', ''), fallbackMessage);
       }
 
     } catch (error) {
       console.error('Error in sendPDFFile:', error);
       // Fallback message
       const { sendMessage } = require('./messageHandler');
-      await sendMessage(userId.replace('@s.whatsapp.net', '').replace('@c.us', ''), 
+      await sendMessage(userId.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@lid', ''), 
         `PDF brochure for ${packageInfo.packageName} will be sent to you along with your booking details.`
       );
     }
@@ -1248,6 +1552,73 @@ ${conversationSummary}`;
     }
   }
 
+  // Method to format executive notification message
+  formatExecutiveMessage(userId) {
+    const data = this.userData[userId];
+    if (!data) return '';
+
+    const time = new Date().toLocaleString();
+    const name = data.name || 'Unknown';
+    const phone = userId;
+
+    // Calculate end date based on package
+    const packageDurations = {
+      'A London Christmas': 9,
+      'A New York Christmas': 5,
+      'A Parisian Noël': 7,
+      'A Week with Santa': 7
+    };
+    const duration = packageDurations[data.selectedPackage] || 7;
+    const startDateParts = data.startDate.split('/');
+    const startDate = new Date(`${startDateParts[2]}-${startDateParts[1]}-${startDateParts[0]}`);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + duration - 1);
+    const endDateStr = `${endDate.getDate().toString().padStart(2, '0')}/${(endDate.getMonth() + 1).toString().padStart(2, '0')}/${endDate.getFullYear()}`;
+
+    const selectedPackage = data.selectedPackage || 'Unknown';
+    const travelers = data.travelers || 1;
+    const requirements = data.requirements || 'No special requirements';
+
+    let quotesSection = '';
+    if (data.quotes && data.quotes.length > 0) {
+      quotesSection = data.quotes.map(quote => {
+        return `* ${quote.vendor_name} (${quote.vendor_type})\n  - Original Price: ₹${quote.original_price}\n  - Markup Price: ₹${quote.markup_price}\n  - Markup Amount: ₹${quote.markup_amount}\n  - Quote: ${quote.quote_text}\n\nOn ${new Date().toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}, ${new Date().toLocaleTimeString()} <${quote.vendor_email}> wrote:\n\n> ${quote.quote_text}`;
+      }).join('\n\n');
+    } else {
+      quotesSection = 'No quotes available';
+    }
+
+    const finalPrice = data.quotes ? data.quotes.reduce((sum, q) => sum + (parseFloat(q.markup_price) || 0), 0) : 0;
+
+    const conversationHistory = this.getConversationHistory(userId);
+    const conversationSummary = conversationHistory.length > 0 ? conversationHistory.map(msg => `* ${msg}`).join('\n') : '* No conversation history available for this customer';
+
+    const message = `NEW BOOKING REQUEST
+
+Time: ${time}
+
+CUSTOMER DETAILS:
+* Name: ${name}
+* Phone: ${phone}
+
+TRIP DETAILS:
+* Package: ${selectedPackage}
+* Start Date: ${data.startDate}
+* End Date: ${endDateStr}
+* Travelers: ${travelers}${data.requirements && data.requirements !== 'No special requirements' ? `\n* Requirements: ${data.requirements}` : ''}
+
+ORIGINAL VENDOR QUOTES:
+${quotesSection}
+
+QUOTES SENT TO CUSTOMER:
+* Final Price: ₹${finalPrice}
+
+CONVERSATION SUMMARY:
+${conversationSummary}`;
+
+    return message;
+  }
+
   generateExecutiveNotification(userId, whatsappNumber, vendorQuotes = []) {
     const data = this.userData[userId];
     if (!data) return null;
@@ -1293,6 +1664,48 @@ ${vendorQuotesText}
  CONVERSATION SUMMARY:
 • Customer selected ${data.selectedPackage} package
 • Ready to proceed with booking`;
+  }
+
+  // Store request ID for quote matching
+  storeRequestId(userId, requestId) {
+    if (!this.userData[userId]) {
+      this.userData[userId] = {};
+    }
+    
+    // Initialize requestIds array if it doesn't exist
+    if (!this.userData[userId].requestIds) {
+      this.userData[userId].requestIds = [];
+      
+      // Migrate existing request ID if present
+      if (this.userData[userId].currentRequestId && this.userData[userId].requestTimestamp) {
+        this.userData[userId].requestIds.push({
+          id: this.userData[userId].currentRequestId,
+          timestamp: this.userData[userId].requestTimestamp,
+          used: false
+        });
+        console.log(`[BOTFLOW] Migrated existing request ID ${this.userData[userId].currentRequestId} to new format for user ${userId}`);
+      }
+    }
+    
+    // Add new request ID with timestamp
+    const requestInfo = {
+      id: requestId,
+      timestamp: Date.now(),
+      used: false
+    };
+    
+    this.userData[userId].requestIds.push(requestInfo);
+    this.userData[userId].currentRequestId = requestId;
+    this.userData[userId].requestTimestamp = Date.now();
+    
+    // Keep only last 10 request IDs to prevent memory issues
+    if (this.userData[userId].requestIds.length > 10) {
+      this.userData[userId].requestIds = this.userData[userId].requestIds.slice(-10);
+    }
+    
+    this.saveUserData();
+    
+    console.log(`[BOTFLOW] Stored request ID ${requestId} for user ${userId} (total: ${this.userData[userId].requestIds.length} requests)`);
   }
 }
 

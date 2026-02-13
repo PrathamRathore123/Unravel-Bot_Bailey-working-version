@@ -48,6 +48,9 @@ async function startBot() {
             qrcode.generate(qr, { small: true });
         }
 
+        // Update global connection status
+        global.isConnected = connection === 'open';
+
         // Handle connection closure
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
@@ -129,6 +132,17 @@ async function startBot() {
                     // Add delay between multiple messages for better user experience
                     if (flowResponse.messages.length > 1) {
                         await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                }
+
+                // Send executive notification if required (after quotes are sent to user)
+                if (flowResponse.sendExecutive && flowResponse.executiveData) {
+                    try {
+                        console.log(`Sending executive notification for user ${userId} after quotes sent`);
+                        const { userId: execUserId, userData } = flowResponse.executiveData;
+                        BotFlow.sendAdminNotification(execUserId, userData);
+                    } catch (execError) {
+                        console.error('Error sending executive notification:', execError.message);
                     }
                 }
 

@@ -31,6 +31,9 @@ module.exports = {
 
   // Vendor API endpoints (example)
   VENDOR_API_BASE: process.env.VENDOR_API_BASE || 'http://localhost:8000/api',
+  
+  // Backend URL for API calls
+  BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:8000',
 
   // Logging
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',

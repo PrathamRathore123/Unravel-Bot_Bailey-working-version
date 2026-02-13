@@ -5,9 +5,20 @@ class OpenRouterService {
     this.apiKey = process.env.OPENROUTER_API_KEY;
     this.baseURL = 'https://openrouter.ai/api/v1';
     this.quotaExceeded = false;
+    this.quotaExceededTime = null;
   }
 
   async generateResponse(prompt) {
+    // Check if quota was exceeded and reset after 10 minutes
+    if (this.quotaExceeded && this.quotaExceededTime) {
+      const timeSinceExceeded = Date.now() - this.quotaExceededTime;
+      if (timeSinceExceeded > 10 * 60 * 1000) { // 10 minutes
+        console.log('[QUOTA] Resetting quota flag after 10 minutes');
+        this.quotaExceeded = false;
+        this.quotaExceededTime = null;
+      }
+    }
+
     if (this.quotaExceeded) {
       throw new Error('API quota exceeded');
     }
@@ -32,7 +43,7 @@ class OpenRouterService {
             content: enhancedPrompt
           }
         ],
-        max_tokens: 1000,
+        max_tokens: 500,
         temperature: 0.8
       }, {
         headers: {
@@ -69,6 +80,7 @@ class OpenRouterService {
         if (!this.quotaExceeded) {
           console.error('OpenRouter API quota exceeded. Please upgrade your plan.');
           this.quotaExceeded = true;
+          this.quotaExceededTime = Date.now();
         }
       } else if (!this.quotaExceeded) {
         console.error('Error calling OpenRouter API:', error.message);

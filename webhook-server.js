@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const axios = require('axios');
+const config = require('./config');
 const BotFlow = require('./botFlow');
 const conversationManager = require('./conversationManager');
 
@@ -60,36 +62,53 @@ app.post('/webhook', async (req, res) => {
             // Handle vendor quotes notification
             console.log('Processing vendor quotes webhook');
             
-            // Extract customer phone number
+            // Extract customer phone number and format it consistently
             const customerPhone = req.body.customer_phone;
+            const formattedPhone = formatPhoneNumber(customerPhone);
+            console.log(`Phone format: ${customerPhone} -> ${formattedPhone}`);
+            
             if (customerPhone) {
-                console.log(`Phone format: ${customerPhone} -> ${formatPhoneNumber(customerPhone)}`);
                 
                 // Extract price from webhook - use total_price first, then grand_total
                 const price = req.body.total_price || req.body.grand_total || 'TBD';
                 
                 // Use BotFlow to handle the quote message
-                const quoteResponse = BotFlow.handleQuoteMessage(customerPhone, price, req.body.quotes || [], req.body);
+                const quoteResponse = BotFlow.handleQuoteMessage(formattedPhone, price, req.body.quotes || [], req.body);
                 
                 if (quoteResponse && quoteResponse.messages) {
-                    console.log('Sending quote messages to customer:', customerPhone);
+                    console.log('Sending quote messages to customer:', formattedPhone);
                     
                     // Actually send messages via Baileys
                     for (const msg of quoteResponse.messages) {
                         try {
                             console.log('Sending message:', msg.substring(0, 100) + '...');
-                            const success = await sendMessageViaBaileys(customerPhone, msg);
+                            const success = await sendMessageViaBaileys(formattedPhone, msg);
                             if (success) {
-                                console.log('Message sent successfully to', customerPhone);
+                                console.log('Message sent successfully to', formattedPhone);
                                 // Store bot message in conversation history
-                                conversationManager.addMessage(formatPhoneNumber(customerPhone), msg, true);
+                                conversationManager.addMessage(formattedPhone, msg, true);
                             } else {
-                                console.error('Failed to send message to', customerPhone);
+                                console.error('Failed to send message to', formattedPhone);
                             }
                         } catch (error) {
-                            console.error('Error sending message to', customerPhone, ':', error.message);
+                            console.error('Error sending message to', formattedPhone, ':', error.message);
                         }
                     }
+                    
+                    // Send executive notification after quotes are sent to customer
+                    if (quoteResponse.sendExecutive && quoteResponse.executiveData) {
+                        try {
+                            console.log('Sending executive notification after quotes delivered');
+                            const { userId: execUserId, userData } = quoteResponse.executiveData;
+                            BotFlow.sendAdminNotification(execUserId, userData);
+                        } catch (execError) {
+                            console.error('Error sending executive notification:', execError.message);
+                        }
+                    }
+                } else if (quoteResponse === null) {
+                    console.log('Ignoring stale quote - no matching request ID found for:', formattedPhone);
+                } else {
+                    console.log('No quote response generated for:', formattedPhone);
                 }
             }
         } else if (req.body.phone) {
@@ -99,19 +118,25 @@ app.post('/webhook', async (req, res) => {
             
             console.log(`Phone format: ${customerPhone} -> ${formatPhoneNumber(customerPhone)}`);
             
+            // Store request ID in BotFlow immediately for quote matching
+            const requestId = req.body.request_id;
+            const formattedPhone = formatPhoneNumber(customerPhone);
+            if (requestId) {
+                BotFlow.storeRequestId(formattedPhone, requestId);
+                console.log(`[REQUEST ID] Stored request ID ${requestId} for user ${customerPhone} (formatted as ${formattedPhone})`);
+            }
+            
             // Send booking finalized message
-            const confirmationMessage = `*BOOKING FINALIZED!*
-
-*Your booking request has been successfully submitted!*
+            const confirmationMessage = `*Your request has been successfully submitted*
 
 *Booking Details:*
 *Name:* ${req.body.name || 'Customer'}
 *Phone:* ${customerPhone}
 *Destination:* ${req.body.destination || 'Package'}
 *Travel Date:* ${req.body.travel_date || 'TBD'}
-*Guests:* ${req.body.guests || 1}
+*Guests:* ${req.body.guests || 1}${req.body.requirements && req.body.requirements !== 'No special requirements' ? `\n*Requirements:* ${req.body.requirements}` : ''}
 
-*Our team will review your details and contact you shortly with final pricing.*
+*Our team will review your details and contact you shortly with pricing.*
 
 *Thank you for choosing Unravel Experience!*
 
@@ -119,7 +144,7 @@ app.post('/webhook', async (req, res) => {
 
             console.log('Sending confirmation to:', customerPhone);
             
-            // Actually send the confirmation message via Baileys
+            // Actually send confirmation message via Baileys
             try {
                 const success = await sendMessageViaBaileys(customerPhone, confirmationMessage);
                 if (success) {
@@ -138,6 +163,63 @@ app.post('/webhook', async (req, res) => {
     } catch (error) {
         console.error('Error processing webhook:', error);
         res.status(500).json({ status: 'error', message: 'Failed to process webhook' });
+    }
+});
+
+// Submit booking endpoint for frontend integration
+app.post('/submit-booking', async (req, res) => {
+    console.log('Received frontend booking submission:', JSON.stringify(req.body, null, 2));
+    
+    try {
+        // Validate required fields
+        const { name, email, phone, destination, travel_date, guests } = req.body;
+        if (!name || !email || !phone || !destination || !travel_date || !guests) {
+            return res.status(400).json({ error: 'Missing required fields: name, email, phone, destination, travel_date, guests' });
+        }
+
+        // Generate unique request ID using existing bot logic
+        const requestId = `REQ_${Date.now()}_${phone.slice(-6)}_${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+        console.log(`[FRONTEND BOOKING] Generated request ID: ${requestId} for phone: ${phone}`);
+
+        // Prepare booking data for backend
+        const bookingData = {
+            name: name.trim(),
+            email: email.trim(),
+            phone: phone.trim(),
+            destination: destination.trim(),
+            travel_date: travel_date,
+            guests: parseInt(guests) || 1,
+            special_requests: 'none', // As specified for frontend bookings
+            request_id: requestId
+        };
+
+        // Call backend API
+        console.log('Calling backend with booking data...');
+        const backendResponse = await axios.post(`${config.BACKEND_URL}/api/receive-customer-booking/`, bookingData, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (backendResponse.status === 201) {
+            console.log('Backend booking creation successful');
+
+            // Store request ID in BotFlow for future quote matching
+            const cleanPhone = formatPhoneNumber(phone).split('@')[0];
+            BotFlow.storeRequestId(cleanPhone, requestId);
+            console.log(`[REQUEST ID] Stored request ID ${requestId} for frontend user ${phone} (clean phone: ${cleanPhone})`);
+
+            res.status(200).json({ success: true, request_id: requestId });
+        } else {
+            console.error('Backend returned error status:', backendResponse.status);
+            res.status(500).json({ error: 'Backend error' });
+        }
+    } catch (error) {
+        console.error('Error processing frontend booking submission:', error.message);
+        if (error.response) {
+            console.error('Backend error response:', error.response.data);
+        }
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 

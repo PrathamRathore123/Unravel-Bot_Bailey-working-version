@@ -1,0 +1,49 @@
+BOT CHANGES - REQUEST_ID NOW SENT
+==================================
+
+CHANGES MADE TO: bot/botFlow.js
+
+Line ~755:
+----------
+BEFORE:
+  const backendResponse = await axios.post('http://127.0.0.1:8000/create-quote-request/', {
+    customer_name: bookingData.name,
+    customer_phone: userId,
+    ...
+
+AFTER:
+  const backendResponse = await axios.post('http://127.0.0.1:8000/create-quote-request/', {
+    request_id: requestId,  // NOW INCLUDED
+    customer_name: bookingData.name,
+    customer_phone: userId,
+    ...
+
+Line ~881:
+----------
+BEFORE:
+  const backendResponse = await axios.post('http://127.0.0.1:8000/create-quote-request/', {
+    customer_name: bookingData.name,
+    customer_phone: userId,
+    ...
+
+AFTER:
+  const backendResponse = await axios.post('http://127.0.0.1:8000/create-quote-request/', {
+    request_id: requestId,  // NOW INCLUDED
+    customer_name: bookingData.name,
+    customer_phone: userId,
+    ...
+
+RESULT:
+=======
+Bot now sends request_id in POST data to backend.
+Backend will use bot's request_id throughout the flow.
+Webhook will return same request_id to bot.
+
+TEST:
+=====
+1. Restart bot: node index.js
+2. Send booking from WhatsApp
+3. Check backend receives request_id
+4. Verify no "request_id is required" error
+
+READY!

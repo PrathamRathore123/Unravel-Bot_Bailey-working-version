@@ -328,8 +328,7 @@ Answer the customer's question using ONLY the ${selectedPackage.name} package in
           if (!error.message?.includes('quota')) {
             console.error('Error getting AI response for package question:', error);
           }
-          const fallbackResponse = this.answerPackageQuestion(userMessage.toLowerCase(), selectedPackage);
-          return fallbackResponse;
+          return "I'm having trouble accessing that information right now. Please try again later or ask a different question about the package.";
         }
       }
     }
@@ -365,7 +364,7 @@ Help the customer with their booking inquiry using the provided company and pack
         if (!error.message?.includes('quota')) {
           console.error('Error getting AI response for book my trip:', error);
         }
-        return "I'd be happy to help you book your trip! What questions do you have about the Bali Explorer package?";
+        return "I'm having trouble accessing the booking system right now. Please try again in a few moments or contact our support team for assistance.";
       }
     }
 
@@ -410,7 +409,7 @@ Provide a helpful response using the provided company and package information.`;
     const generalPrompt = `You are Unravel One, the AI travel assistant for Unravel Experiences.
 
 COMPANY INFORMATION:
-${this.companyInfo.substring(0, 1000)}...
+${this.companyInfo.substring(0, 500)}...
 
 AVAILABLE PACKAGES:
 ${packageNames}
@@ -429,13 +428,12 @@ Customer message: "${userMessage}"
 Provide a helpful, unique response using the provided company information. Do not repeat the customer's message.`;
 
     try {
-      const aiResponse = await this.openRouterService.generateResponse(generalPrompt);
-      return aiResponse || "If you have any questions about the package or want to proceed with booking, just let me know!";
+      return await this.openRouterService.generateResponse(generalPrompt);
     } catch (error) {
       if (!error.message?.includes('quota')) {
         console.error('Error getting general AI response:', error);
       }
-      return "If you have any questions about the package or want to proceed with booking, just let me know!";
+      return "I'm having trouble accessing that information right now. Please try again later or ask a different question.";
     }
   }
 
@@ -498,41 +496,7 @@ Provide a helpful, unique response using the provided company information. Do no
     return fileMapping[packageName] || '';
   }
 
-  answerPackageQuestion(question, packageData) {
-    let response = '';
-
-    if (question.includes('accommodation') || question.includes('hotel') || question.includes('star')) {
-      response = `Accommodation Details:\n\n` +
-        `${packageData.accommodation.name}\n` +
-        `Type: ${packageData.accommodation.type}\n` +
-        `Location: ${packageData.accommodation.location}\n` +
-        `Amenities: ${packageData.accommodation.amenities.join(', ')}\n\n` +
-        `This is a comfortable ${packageData.accommodation.type.split(' ')[0]} resort for your stay.\n\n` +
-        `If you're ready to proceed with booking, reply "ready for this package".`;
-    } else if (question.includes('restaurant') || question.includes('cafe') || question.includes('food') || question.includes('eat')) {
-      response = `Nearby Restaurants & Cafes:\n\n` +
-        `Restaurants:\n${packageData.accommodation.nearby_restaurants.map(r => `• ${r}`).join('\n')}\n\n` +
-        `Cafes:\n${packageData.accommodation.nearby_cafes.map(c => `• ${c}`).join('\n')}\n\n` +
-        `Enjoy local flavors and international cuisine near your accommodation.\n\n` +
-        `If you're ready to proceed with booking, reply "ready for this package".`;
-    } else if (question.includes('places') || question.includes('visit') || question.includes('nearby') || question.includes('attractions')) {
-      response = `Nearby Places to Visit:\n\n${packageData.accommodation.nearby_attractions.map(a => `• ${a}`).join('\n')}\n\n` +
-        `Explore these locations during your free time.\n\n` +
-        `If you're ready to proceed with booking, reply "ready for this package".`;
-    } else {
-      // General package info
-      response = `Package Information:\n\n` +
-        `${packageData.name}\n` +
-        `Destination: ${packageData.destination}\n` +
-        `Duration: ${packageData.duration}\n\n` +
-        `Highlights: ${packageData.highlights.join(', ')}\n\n` +
-        `Inclusions: ${packageData.inclusions.join(', ')}\n\n` +
-        `If you have specific questions about accommodation, food, or activities, ask.\n\n` +
-        `If you're ready to proceed with booking, reply "ready for this package".`;
-    }
-
-    return response;
-  }
+  // Removed answerPackageQuestion method to eliminate hardcoded responses
 
   isGreeting(message) {
     const greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'hola', 'bonjour', 'ciao'];
@@ -588,33 +552,38 @@ Please provide a helpful, accurate response about travel documents. If they ment
       const keyInfo = this.extractKeyPackageInfo(selectedPackageContent);
       
       // AI Prompt: Answer about selected package ONLY with minimal info
-      const packagePrompt = `You are Unravel One: minimal, professional, softly young.
+      const packagePrompt = `You are Unravel One.
 
-SELECTED PACKAGE: ${selectedPackageName}
-KEY PACKAGE INFORMATION:
-${keyInfo}
+Package: ${selectedPackageName}
+Info: ${keyInfo}
 
-RULES:
-1. Use ONLY the key information above to answer questions
+Rules:
+1. Use only the info above
 2. Answer specifically about ${selectedPackageName}
-3. If information not available, say "I don't have that specific information"
-4. Use short sentences (4-12 words maximum)
-5. No emojis or exclamation marks
-6. Answer in 1-2 sentences maximum
-7. NEVER provide price or price range information
-8. If asked about price, say "I will share pricing details as you complete your booking"
+3. If no info, say "I don't have that specific information"
+4. Short sentences (4-12 words max)
+5. No emojis
+6. Answer in 1-2 sentences max
+7. No price info
 
 Question: ${userMessage}
 
 Answer:`;
 
+      console.log(`[DEBUG] AI Prompt for ${selectedPackageName}:`);
+      console.log(`[DEBUG] Question: ${userMessage}`);
+      console.log(`[DEBUG] Key Info: ${keyInfo}`);
+
       const aiResponse = await this.openRouterService.generateResponse(packagePrompt);
+      console.log(`[DEBUG] AI Response: ${aiResponse}`);
       return aiResponse;
     } catch (error) {
       if (!error.message?.includes('quota')) {
         console.error('Error getting contextual package answer:', error);
       }
-      return "I don't have that specific information about this package.";
+      
+      // Return a generic message instead of rule-based fallback
+      return "I'm sorry, I can't provide that information right now. Please try again later or contact our support team.";
     }
   }
 
@@ -623,34 +592,49 @@ Answer:`;
     const lines = packageContent.split('\n');
     const keyInfo = [];
     
+    console.log('[DEBUG] Extracting key info from package content...');
+    
     for (const line of lines) {
       const lowerLine = line.toLowerCase();
       
-      // Include only essential information lines (EXCLUDE price-related)
+      // Include essential information lines (EXCLUDE price-related)
       if ((lowerLine.includes('duration') || 
            lowerLine.includes('days') || 
            lowerLine.includes('nights') ||
            lowerLine.includes('included') ||
            lowerLine.includes('highlights') ||
            lowerLine.includes('destination') ||
-           lowerLine.includes('location')) &&
+           lowerLine.includes('location') ||
+           lowerLine.includes('visa') ||
+           lowerLine.includes('rockefeller') ||
+           lowerLine.includes('central park') ||
+           lowerLine.includes('broadway') ||
+           lowerLine.includes('fifth avenue') ||
+           lowerLine.includes('helicopter') ||
+           lowerLine.includes('aman') ||
+           lowerLine.includes('lotte') ||
+           lowerLine.includes('mo ma') ||
+           lowerLine.includes('statue of liberty')) &&
           !lowerLine.includes('price') &&
           !lowerLine.includes('cost') &&
           !lowerLine.includes('rate') &&
           !lowerLine.includes('charge') &&
-          !lowerLine.includes('fee') &&
           !lowerLine.includes('$') &&
           !lowerLine.includes('₹') &&
           !lowerLine.includes('€')) {
         keyInfo.push(line.trim());
+        console.log(`[DEBUG] Added line: ${line.trim()}`);
       }
       
-      // Limit to 10 most relevant lines
-      if (keyInfo.length >= 10) break;
+      // Limit to 8 most relevant lines to include visa and location info
+      if (keyInfo.length >= 8) break;
     }
     
+    console.log(`[DEBUG] Final extracted info (${keyInfo.length} lines):`, keyInfo);
     return keyInfo.join('\n');
   }
+
+  // Removed getRuleBasedResponse method to eliminate hardcoded responses
 }
 
 module.exports = new AIService();

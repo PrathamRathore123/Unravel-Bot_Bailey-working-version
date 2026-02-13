@@ -6,6 +6,13 @@ class ConversationManager {
     this.conversations = this.loadConversations();
     // Clean expired states every hour
     setInterval(() => this.cleanExpiredStates(), 60 * 60 * 1000);
+    // Run selective cleanup every 24 hours
+    setInterval(() => this.selectiveCleanup(), 24 * 60 * 60 * 1000);
+  }
+
+  // Helper method to detect if userId is a group chat
+  isGroupChat(userId) {
+    return userId.includes('@g.us') || userId.includes('@broadcast');
   }
 
   loadConversations() {
@@ -33,6 +40,12 @@ class ConversationManager {
   }
 
   addMessage(userId, message, isBot = false) {
+    // Skip storing group messages
+    if (this.isGroupChat(userId)) {
+      console.log(`[CONV:${userId}] Skipping group message storage`);
+      return;
+    }
+
     console.log(`[CONV:${userId}] Adding message: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''} (Bot: ${isBot})`);
     
     if (!this.conversations[userId]) {
@@ -48,10 +61,25 @@ class ConversationManager {
 
     console.log(`[CONV:${userId}] Total messages: ${this.conversations[userId].length}`);
 
-    // Keep only last 50 messages per user to prevent file from growing too large
-    if (this.conversations[userId].length > 50) {
-      this.conversations[userId] = this.conversations[userId].slice(-50);
-      console.log(`[CONV:${userId}] Trimmed to last 50 messages`);
+    // Keep only last 50 AI messages per user, but preserve ALL user messages
+    if (isBot) {
+      const botMessages = this.conversations[userId].filter(msg => msg.isBot);
+      if (botMessages.length > 50) {
+        // Count how many bot messages to remove
+        const botMessagesToRemove = botMessages.length - 50;
+        let removedCount = 0;
+        
+        // Remove oldest bot messages while preserving user messages
+        this.conversations[userId] = this.conversations[userId].filter(msg => {
+          if (msg.isBot && removedCount < botMessagesToRemove) {
+            removedCount++;
+            return false; // Remove this bot message
+          }
+          return true; // Keep user messages and recent bot messages
+        });
+        
+        console.log(`[CONV:${userId}] Trimmed to last 50 bot messages (removed ${removedCount} old bot responses)`);
+      }
     }
 
     this.saveConversations();
@@ -162,6 +190,74 @@ class ConversationManager {
       });
     }
     this.saveConversations();
+  }
+
+  // Selective cleanup function for conversations older than 30 days
+  selectiveCleanup() {
+    console.log('[CLEANUP] Starting selective cleanup process...');
+    const thirtyDaysAgo = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
+    let cleanedUsers = 0;
+    let preservedUsers = 0;
+
+    // Load userData to check for active booking sessions
+    let userData = {};
+    try {
+      const userDataPath = './userData.json';
+      if (fs.existsSync(userDataPath)) {
+        userData = JSON.parse(fs.readFileSync(userDataPath, 'utf8'));
+      }
+    } catch (error) {
+      console.error('[CLEANUP] Error loading userData:', error);
+    }
+
+    for (const userId in this.conversations) {
+      // Remove group chats entirely
+      if (this.isGroupChat(userId)) {
+        console.log(`[CLEANUP] Removing group chat: ${userId}`);
+        delete this.conversations[userId];
+        cleanedUsers++;
+        continue;
+      }
+
+      // Check if user has active booking session (within last 7 days)
+      const hasActiveBooking = userData[userId] && 
+        userData[userId].requestTimestamp && 
+        (Date.now() - userData[userId].requestTimestamp) < (7 * 24 * 60 * 60 * 1000);
+
+      if (hasActiveBooking) {
+        console.log(`[CLEANUP] Preserving user with active booking: ${userId}`);
+        preservedUsers++;
+        continue;
+      }
+
+      // Check if all messages are older than 30 days
+      const userMessages = this.conversations[userId];
+      const hasRecentMessages = userMessages.some(msg => {
+        const messageDate = new Date(msg.timestamp);
+        return messageDate > thirtyDaysAgo;
+      });
+
+      if (!hasRecentMessages) {
+        console.log(`[CLEANUP] Removing old conversation for user: ${userId}`);
+        delete this.conversations[userId];
+        cleanedUsers++;
+      } else {
+        // Keep only recent messages (last 30 days)
+        const originalCount = userMessages.length;
+        this.conversations[userId] = userMessages.filter(msg => {
+          const messageDate = new Date(msg.timestamp);
+          return messageDate > thirtyDaysAgo;
+        });
+        
+        if (this.conversations[userId].length < originalCount) {
+          console.log(`[CLEANUP] Trimmed old messages for user: ${userId} (${originalCount} -> ${this.conversations[userId].length})`);
+        }
+        preservedUsers++;
+      }
+    }
+
+    this.saveConversations();
+    console.log(`[CLEANUP] Cleanup completed. Removed: ${cleanedUsers} users, Preserved: ${preservedUsers} users`);
   }
 }
 
